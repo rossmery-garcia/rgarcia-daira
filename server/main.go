@@ -7,20 +7,21 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
-type HealthCheckResponse struct {
+type ResponseFormat struct {
 	Status  int    `json:"status"`
 	Message string `json:"message"`
 }
 
 type Operation struct {
 	ID           string    `json:"id"`
-	LeftOperand  int       `json:"leftOperand"`  //-- First operand
-	RightOperand int       `json:"rightOperand"` //-- Second operand
-	Operator     Operator  `json:"operator"`
+	LeftOperand  int       `json:"leftOperand" validate:"required,gte=-99,lte=99"`  //-- First operand
+	RightOperand int       `json:"rightOperand" validate:"required,gte=-99,lte=99"` //-- Second operand
+	Operator     Operator  `json:"operator" validate:"required,eq=0|eq=1|eq=2|eq=3"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -40,7 +41,7 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	response := HealthCheckResponse{
+	response := ResponseFormat{
 		Status:  http.StatusOK,
 		Message: "OK",
 	}
@@ -58,10 +59,32 @@ func getOperations(w http.ResponseWriter, r *http.Request) {
 func createOperation(w http.ResponseWriter, r *http.Request) {
 	var newOperation Operation
 
-	error := json.NewDecoder(r.Body).Decode(&newOperation)
+	if err := json.NewDecoder(r.Body).Decode(&newOperation); err != nil {
+		response := ResponseFormat{
+			Status:  http.StatusBadRequest,
+			Message: err.Error(),
+		}
 
-	if error != nil {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	validate := validator.New()
+	err := validate.Struct(newOperation)
+
+	if err != nil {
+		errors := err.(validator.ValidationErrors)
+
+		response := ResponseFormat{
+			Status:  http.StatusBadRequest,
+			Message: errors[0].Error(),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
 		return
 	}
 
@@ -73,6 +96,7 @@ func createOperation(w http.ResponseWriter, r *http.Request) {
 	operationHistory = append(operationHistory, newOperation)
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newOperation)
 }
 
